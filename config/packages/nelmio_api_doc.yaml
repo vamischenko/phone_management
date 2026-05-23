@@ -1,0 +1,15 @@
+nelmio_api_doc:
+    documentation:
+        info:
+            title: Phone Management API
+            description: REST API for managing customer phone numbers
+            version: 1.0.0
+        servers:
+            - url: http://localhost:8080
+              description: Local development
+    areas:
+        path_patterns:
+            - ^/api
+    models:
+        names:
+            - { alias: Number, type: App\Entity\Number }
