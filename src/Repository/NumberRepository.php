@@ -45,13 +45,17 @@ class NumberRepository extends ServiceEntityRepository
                 ->setParameter('search', '%' . $search . '%');
         }
 
-        $allowedSortFields = ['createdAt', 'updatedAt'];
-        $sortField = in_array($sortBy, $allowedSortFields, true) ? $sortBy : 'createdAt';
-        $sortDirection = strtoupper($sortOrder) === 'ASC' ? 'ASC' : 'DESC';
+        $sortFieldMap = [
+            'created_at' => 'createdAt',
+            'updated_at' => 'updatedAt',
+        ];
+        $sortField = $sortFieldMap[$sortBy] ?? 'createdAt';
+        $sortDirection = strtolower($sortOrder) === 'asc' ? 'ASC' : 'DESC';
+
+        $countQb = (clone $qb)->select('COUNT(n.id)');
+        $total = $countQb->getQuery()->getSingleScalarResult();
 
         $qb->orderBy('n.' . $sortField, $sortDirection);
-
-        $total = (clone $qb)->select('COUNT(n.id)')->getQuery()->getSingleScalarResult();
 
         $items = $qb
             ->select('n')

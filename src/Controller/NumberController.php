@@ -9,18 +9,17 @@ use App\Dto\UpdateNumberDto;
 use App\Entity\Number;
 use App\Repository\NumberRepository;
 use App\Service\NumberService;
-use Nelmio\ApiDocBundle\Attribute\Model;
 use OpenApi\Attributes as OA;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Serializer\SerializerInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
-use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\Cache\ItemInterface;
+use Symfony\Contracts\Cache\TagAwareCacheInterface;
 
 #[Route('/api/numbers', name: 'api_numbers_')]
 #[OA\Tag(name: 'Numbers')]
@@ -30,8 +29,7 @@ class NumberController extends AbstractController
         private readonly NumberRepository $numberRepository,
         private readonly NumberService $numberService,
         private readonly ValidatorInterface $validator,
-        private readonly SerializerInterface $serializer,
-        private readonly CacheInterface $cache,
+        private readonly TagAwareCacheInterface $cache,
     ) {}
 
     #[Route('', name: 'list', methods: ['GET'])]
@@ -42,8 +40,8 @@ class NumberController extends AbstractController
             new OA\Parameter(name: 'status', in: 'query', schema: new OA\Schema(type: 'string', enum: ['active', 'blocked', 'archived'])),
             new OA\Parameter(name: 'tariff', in: 'query', schema: new OA\Schema(type: 'string')),
             new OA\Parameter(name: 'search', in: 'query', schema: new OA\Schema(type: 'string')),
-            new OA\Parameter(name: 'sort_by', in: 'query', schema: new OA\Schema(type: 'string', enum: ['createdAt', 'updatedAt'], default: 'createdAt')),
-            new OA\Parameter(name: 'sort_order', in: 'query', schema: new OA\Schema(type: 'string', enum: ['ASC', 'DESC'], default: 'DESC')),
+            new OA\Parameter(name: 'sort_by', in: 'query', schema: new OA\Schema(type: 'string', enum: ['created_at', 'updated_at'], default: 'created_at')),
+            new OA\Parameter(name: 'sort_order', in: 'query', schema: new OA\Schema(type: 'string', enum: ['asc', 'desc'], default: 'desc')),
             new OA\Parameter(name: 'page', in: 'query', schema: new OA\Schema(type: 'integer', default: 1)),
             new OA\Parameter(name: 'limit', in: 'query', schema: new OA\Schema(type: 'integer', default: 20)),
         ],
@@ -53,29 +51,21 @@ class NumberController extends AbstractController
     )]
     public function list(Request $request): JsonResponse
     {
-        $status = $request->query->get('status');
-        $tariff = $request->query->get('tariff');
-        $search = $request->query->get('search');
-        $sortBy = $request->query->get('sort_by', 'createdAt');
-        $sortOrder = $request->query->get('sort_order', 'DESC');
-        $page = max(1, (int) $request->query->get('page', 1));
-        $limit = min(100, max(1, (int) $request->query->get('limit', 20)));
+        $status    = $request->query->get('status');
+        $tariff    = $request->query->get('tariff');
+        $search    = $request->query->get('search');
+        $sortBy    = $request->query->get('sort_by', 'created_at');
+        $sortOrder = $request->query->get('sort_order', 'desc');
+        $page      = max(1, (int) $request->query->get('page', 1));
+        $limit     = min(100, max(1, (int) $request->query->get('limit', 20)));
 
-        $cacheKey = sprintf(
-            'numbers_list_%s_%s_%s_%s_%s_%d_%d',
-            $status ?? 'all',
-            $tariff ?? 'all',
-            $search ?? 'all',
-            $sortBy,
-            $sortOrder,
-            $page,
-            $limit
-        );
+        $cacheKey = 'numbers_list_' . md5(serialize([$status, $tariff, $search, $sortBy, $sortOrder, $page, $limit]));
 
         $result = $this->cache->get($cacheKey, function (ItemInterface $item) use (
             $status, $tariff, $search, $sortBy, $sortOrder, $page, $limit
         ) {
             $item->expiresAfter(60);
+            $item->tag('numbers_list');
 
             $data = $this->numberRepository->findByFilters(
                 $status, $tariff, $search, $sortBy, $sortOrder, $page, $limit
@@ -110,6 +100,7 @@ class NumberController extends AbstractController
 
         $data = $this->cache->get($cacheKey, function (ItemInterface $item) use ($id) {
             $item->expiresAfter(300);
+            $item->tag(['numbers_list', 'number_' . $id]);
 
             $number = $this->numberRepository->find($id);
             if ($number === null) {
@@ -120,7 +111,10 @@ class NumberController extends AbstractController
         });
 
         if ($data === null) {
-            return $this->json(['error' => 'not_found', 'message' => 'Number not found'], Response::HTTP_NOT_FOUND);
+            return $this->json(
+                [['error' => 'not_found', 'message' => 'Number not found']],
+                Response::HTTP_NOT_FOUND
+            );
         }
 
         return $this->json($data);
@@ -167,14 +161,14 @@ class NumberController extends AbstractController
 
         try {
             $number = $this->numberService->create($dto);
-        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+        } catch (ConflictHttpException) {
             return $this->json(
                 [['error' => 'validation_error', 'details' => ['number' => 'already exists']]],
                 Response::HTTP_UNPROCESSABLE_ENTITY
             );
         }
 
-        $this->cache->delete('numbers_list_*');
+        $this->cache->invalidateTags(['numbers_list']);
 
         return $this->json($this->serializeNumber($number), Response::HTTP_CREATED);
     }
@@ -204,7 +198,10 @@ class NumberController extends AbstractController
     {
         $number = $this->numberRepository->find($id);
         if ($number === null) {
-            return $this->json(['error' => 'not_found', 'message' => 'Number not found'], Response::HTTP_NOT_FOUND);
+            return $this->json(
+                [['error' => 'not_found', 'message' => 'Number not found']],
+                Response::HTTP_NOT_FOUND
+            );
         }
 
         $data = json_decode($request->getContent(), true);
@@ -221,7 +218,6 @@ class NumberController extends AbstractController
         if (array_key_exists('status', $data)) {
             $dto->status = $data['status'];
         }
-
         if (array_key_exists('tariff', $data)) {
             $dto->tariff = $data['tariff'];
         }
@@ -233,14 +229,14 @@ class NumberController extends AbstractController
 
         try {
             $number = $this->numberService->update($number, $dto);
-        } catch (\Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException $e) {
+        } catch (UnprocessableEntityHttpException $e) {
             return $this->json(
                 [['error' => 'validation_error', 'details' => ['status' => $e->getMessage()]]],
                 Response::HTTP_UNPROCESSABLE_ENTITY
             );
         }
 
-        $this->cache->delete('number_' . $id);
+        $this->cache->invalidateTags(['numbers_list', 'number_' . $id]);
 
         return $this->json($this->serializeNumber($number));
     }
@@ -248,10 +244,10 @@ class NumberController extends AbstractController
     private function serializeNumber(Number $number): array
     {
         return [
-            'id' => (string) $number->getId(),
-            'number' => $number->getNumber(),
-            'status' => $number->getStatus()->value,
-            'tariff' => $number->getTariff(),
+            'id'         => (string) $number->getId(),
+            'number'     => $number->getNumber(),
+            'status'     => $number->getStatus()->value,
+            'tariff'     => $number->getTariff(),
             'created_at' => $number->getCreatedAt()->format(\DateTimeInterface::RFC3339),
             'updated_at' => $number->getUpdatedAt()->format(\DateTimeInterface::RFC3339),
         ];

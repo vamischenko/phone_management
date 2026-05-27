@@ -8,6 +8,7 @@ framework:
             numbers.cache:
                 adapter: cache.adapter.redis
                 default_lifetime: 300
+                tags: true
 
 when@test:
     framework:
@@ -19,3 +20,5 @@ when@test:
             pools:
                 numbers.cache:
                     adapter: cache.adapter.array
+                    default_lifetime: 300
+                    tags: true

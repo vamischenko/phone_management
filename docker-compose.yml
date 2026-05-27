@@ -3,9 +3,15 @@ services:
     build:
       context: .
       dockerfile: docker/php/Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      APP_SECRET: ${APP_SECRET:-changeme32charsecretkey00000000}
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-phone_management}?serverVersion=16&charset=utf8"
+      REDIS_URL: "redis://redis:6379"
+      DEFAULT_URI: "http://localhost:${NGINX_PORT:-8080}"
     volumes:
       - .:/var/www/app
-      - /var/www/app/vendor
+      - vendor_data:/var/www/app/vendor
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,6 +64,7 @@ services:
 
 volumes:
   postgres_data:
+  vendor_data:
 
 networks:
   app_network:
