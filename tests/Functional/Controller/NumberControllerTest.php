@@ -34,7 +34,6 @@ class NumberControllerTest extends WebTestCase
         $entity->setNumber($number);
         $entity->setTariff($tariff);
         $entity->setStatus($status);
-        $entity->onPrePersist();
 
         $this->em->persist($entity);
         $this->em->flush();
@@ -90,6 +89,7 @@ class NumberControllerTest extends WebTestCase
     public function testGetListSortByCreatedAtAsc(): void
     {
         $this->createNumber('46700000001');
+        sleep(1); // TIMESTAMP(0) has second precision — ensure distinct timestamps
         $this->createNumber('46700000002');
 
         $client = static::createClient();
@@ -106,6 +106,7 @@ class NumberControllerTest extends WebTestCase
     public function testGetListSortByCreatedAtDesc(): void
     {
         $this->createNumber('46700000001');
+        sleep(1); // TIMESTAMP(0) has second precision — ensure distinct timestamps
         $this->createNumber('46700000002');
 
         $client = static::createClient();
@@ -407,5 +408,21 @@ class NumberControllerTest extends WebTestCase
         $this->assertResponseStatusCodeSame(404);
         $data = json_decode($client->getResponse()->getContent(), true);
         $this->assertSame('not_found', $data[0]['error']);
+    }
+
+    public function testUpdateWithBlankTariffFails(): void
+    {
+        $number = $this->createNumber();
+        $id = (string) $number->getId();
+
+        $client = static::createClient();
+        $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
+            'tariff' => '',
+        ]));
+
+        $this->assertResponseStatusCodeSame(422);
+        $data = json_decode($client->getResponse()->getContent(), true);
+        $this->assertSame('validation_error', $data[0]['error']);
+        $this->assertArrayHasKey('tariff', $data[0]['details']);
     }
 }

@@ -15,6 +15,7 @@ class UpdateNumberDto
     )]
     public ?string $status = null;
 
+    #[Assert\NotBlank(allowNull: true, message: 'tariff must not be blank')]
     #[Assert\Length(max: 100, maxMessage: 'tariff must not exceed 100 characters')]
     public ?string $tariff = null;
 

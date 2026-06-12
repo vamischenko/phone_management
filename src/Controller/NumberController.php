@@ -71,7 +71,7 @@ class NumberController extends AbstractController
         $tariff = $this->nullableQueryString($request, 'tariff');
         $search = $this->nullableQueryString($request, 'search');
         $sortBy = $request->query->get('sort_by', 'created_at');
-        $sortOrder = $request->query->get('sort_order', 'desc');
+        $sortOrder = strtolower((string) $request->query->get('sort_order', 'desc'));
         $page = max(1, (int) $request->query->get('page', 1));
         $limit = min(100, max(1, (int) $request->query->get('limit', 20)));
 
@@ -82,7 +82,7 @@ class NumberController extends AbstractController
             );
         }
 
-        if (!in_array(strtolower((string) $sortOrder), ['asc', 'desc'], true)) {
+        if (!in_array($sortOrder, ['asc', 'desc'], true)) {
             return $this->json(
                 [['error' => 'validation_error', 'details' => ['sort_order' => 'sort_order must be one of: asc, desc']]],
                 Response::HTTP_BAD_REQUEST
