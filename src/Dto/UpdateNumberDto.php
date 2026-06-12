@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Dto;
 
-use App\Enum\NumberStatus;
 use Symfony\Component\Validator\Constraints as Assert;
+use Symfony\Component\Validator\Context\ExecutionContextInterface;
 
 class UpdateNumberDto
 {
@@ -17,4 +17,14 @@ class UpdateNumberDto
 
     #[Assert\Length(max: 100, maxMessage: 'tariff must not exceed 100 characters')]
     public ?string $tariff = null;
+
+    #[Assert\Callback]
+    public function validateAtLeastOneField(ExecutionContextInterface $context): void
+    {
+        if ($this->status === null && $this->tariff === null) {
+            $context->buildViolation('at least one of status or tariff must be provided')
+                ->atPath('body')
+                ->addViolation();
+        }
+    }
 }

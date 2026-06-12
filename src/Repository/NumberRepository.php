@@ -20,7 +20,7 @@ class NumberRepository extends ServiceEntityRepository
     }
 
     public function findByFilters(
-        ?string $status,
+        ?NumberStatus $status,
         ?string $tariff,
         ?string $search,
         string $sortBy,
@@ -35,12 +35,12 @@ class NumberRepository extends ServiceEntityRepository
                 ->setParameter('status', $status);
         }
 
-        if ($tariff !== null) {
+        if ($tariff !== null && $tariff !== '') {
             $qb->andWhere('n.tariff = :tariff')
                 ->setParameter('tariff', $tariff);
         }
 
-        if ($search !== null) {
+        if ($search !== null && $search !== '') {
             $qb->andWhere('n.number LIKE :search')
                 ->setParameter('search', '%' . $search . '%');
         }

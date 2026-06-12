@@ -8,13 +8,14 @@ use App\Dto\CreateNumberDto;
 use App\Dto\UpdateNumberDto;
 use App\Entity\Number;
 use App\Enum\NumberStatus;
+use App\Exception\ArchivedNumberException;
+use App\Exception\DuplicateNumberException;
 use App\Repository\NumberRepository;
 use App\Service\NumberService;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
-use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 class NumberServiceTest extends TestCase
 {
@@ -61,7 +62,26 @@ class NumberServiceTest extends TestCase
             ->method('findOneBy')
             ->willReturn($existing);
 
-        $this->expectException(ConflictHttpException::class);
+        $this->expectException(DuplicateNumberException::class);
+        $this->service->create($dto);
+    }
+
+    public function testCreateThrowsOnUniqueConstraintViolation(): void
+    {
+        $dto = new CreateNumberDto();
+        $dto->number = '46700000001';
+        $dto->tariff = 'business';
+
+        $this->repository->expects($this->once())
+            ->method('findOneBy')
+            ->willReturn(null);
+
+        $this->entityManager->expects($this->once())->method('persist');
+        $this->entityManager->expects($this->once())
+            ->method('flush')
+            ->willThrowException($this->createMock(UniqueConstraintViolationException::class));
+
+        $this->expectException(DuplicateNumberException::class);
         $this->service->create($dto);
     }
 
@@ -107,7 +127,7 @@ class NumberServiceTest extends TestCase
         $dto = new UpdateNumberDto();
         $dto->status = 'active';
 
-        $this->expectException(UnprocessableEntityHttpException::class);
+        $this->expectException(ArchivedNumberException::class);
         $this->service->update($number, $dto);
     }
 }

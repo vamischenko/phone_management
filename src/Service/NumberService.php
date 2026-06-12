@@ -8,10 +8,11 @@ use App\Dto\CreateNumberDto;
 use App\Dto\UpdateNumberDto;
 use App\Entity\Number;
 use App\Enum\NumberStatus;
+use App\Exception\ArchivedNumberException;
+use App\Exception\DuplicateNumberException;
 use App\Repository\NumberRepository;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
-use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 class NumberService
 {
@@ -24,7 +25,7 @@ class NumberService
     {
         $existing = $this->numberRepository->findOneBy(['number' => $dto->number]);
         if ($existing !== null) {
-            throw new ConflictHttpException('number already exists');
+            throw new DuplicateNumberException($dto->number);
         }
 
         $number = new Number();
@@ -32,7 +33,12 @@ class NumberService
         $number->setTariff($dto->tariff);
 
         $this->entityManager->persist($number);
-        $this->entityManager->flush();
+
+        try {
+            $this->entityManager->flush();
+        } catch (UniqueConstraintViolationException) {
+            throw new DuplicateNumberException($dto->number);
+        }
 
         return $number;
     }
@@ -40,7 +46,7 @@ class NumberService
     public function update(Number $number, UpdateNumberDto $dto): Number
     {
         if ($number->getStatus() === NumberStatus::ARCHIVED) {
-            throw new UnprocessableEntityHttpException('archived number cannot be modified');
+            throw new ArchivedNumberException();
         }
 
         if ($dto->status !== null) {

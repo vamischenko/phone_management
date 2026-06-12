@@ -7,16 +7,20 @@ namespace App\Controller;
 use App\Dto\CreateNumberDto;
 use App\Dto\UpdateNumberDto;
 use App\Entity\Number;
+use App\Enum\NumberStatus;
+use App\Exception\ArchivedNumberException;
+use App\Exception\DuplicateNumberException;
 use App\Repository\NumberRepository;
 use App\Service\NumberService;
 use OpenApi\Attributes as OA;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use App\Exception\NumberNotFoundException;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
-use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Uid\Uuid;
+use Symfony\Component\Validator\ConstraintViolationListInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Symfony\Contracts\Cache\ItemInterface;
 use Symfony\Contracts\Cache\TagAwareCacheInterface;
@@ -47,19 +51,45 @@ class NumberController extends AbstractController
         ],
         responses: [
             new OA\Response(response: 200, description: 'List of numbers'),
+            new OA\Response(response: 400, description: 'Invalid filter parameters'),
         ]
     )]
     public function list(Request $request): JsonResponse
     {
-        $status    = $request->query->get('status');
-        $tariff    = $request->query->get('tariff');
-        $search    = $request->query->get('search');
-        $sortBy    = $request->query->get('sort_by', 'created_at');
-        $sortOrder = $request->query->get('sort_order', 'desc');
-        $page      = max(1, (int) $request->query->get('page', 1));
-        $limit     = min(100, max(1, (int) $request->query->get('limit', 20)));
+        $statusParam = $this->nullableQueryString($request, 'status');
+        $status = null;
+        if ($statusParam !== null) {
+            $status = NumberStatus::tryFrom($statusParam);
+            if ($status === null) {
+                return $this->json(
+                    [['error' => 'validation_error', 'details' => ['status' => 'status must be one of: active, blocked, archived']]],
+                    Response::HTTP_BAD_REQUEST
+                );
+            }
+        }
 
-        $cacheKey = 'numbers_list_' . md5(serialize([$status, $tariff, $search, $sortBy, $sortOrder, $page, $limit]));
+        $tariff = $this->nullableQueryString($request, 'tariff');
+        $search = $this->nullableQueryString($request, 'search');
+        $sortBy = $request->query->get('sort_by', 'created_at');
+        $sortOrder = $request->query->get('sort_order', 'desc');
+        $page = max(1, (int) $request->query->get('page', 1));
+        $limit = min(100, max(1, (int) $request->query->get('limit', 20)));
+
+        if (!in_array($sortBy, ['created_at', 'updated_at'], true)) {
+            return $this->json(
+                [['error' => 'validation_error', 'details' => ['sort_by' => 'sort_by must be one of: created_at, updated_at']]],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
+        if (!in_array(strtolower((string) $sortOrder), ['asc', 'desc'], true)) {
+            return $this->json(
+                [['error' => 'validation_error', 'details' => ['sort_order' => 'sort_order must be one of: asc, desc']]],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
+        $cacheKey = 'numbers_list_' . md5(serialize([$status?->value, $tariff, $search, $sortBy, $sortOrder, $page, $limit]));
 
         $result = $this->cache->get($cacheKey, function (ItemInterface $item) use (
             $status, $tariff, $search, $sortBy, $sortOrder, $page, $limit
@@ -96,25 +126,26 @@ class NumberController extends AbstractController
     )]
     public function show(string $id): JsonResponse
     {
+        if (!Uuid::isValid($id)) {
+            return $this->notFoundResponse();
+        }
+
         $cacheKey = 'number_' . $id;
 
-        $data = $this->cache->get($cacheKey, function (ItemInterface $item) use ($id) {
-            $item->expiresAfter(300);
-            $item->tag(['numbers_list', 'number_' . $id]);
+        try {
+            $data = $this->cache->get($cacheKey, function (ItemInterface $item) use ($id) {
+                $item->expiresAfter(300);
+                $item->tag(['numbers_list', 'number_' . $id]);
 
-            $number = $this->numberRepository->find($id);
-            if ($number === null) {
-                return null;
-            }
+                $number = $this->numberRepository->find($id);
+                if ($number === null) {
+                    throw new NumberNotFoundException();
+                }
 
-            return $this->serializeNumber($number);
-        });
-
-        if ($data === null) {
-            return $this->json(
-                [['error' => 'not_found', 'message' => 'Number not found']],
-                Response::HTTP_NOT_FOUND
-            );
+                return $this->serializeNumber($number);
+            });
+        } catch (NumberNotFoundException) {
+            return $this->notFoundResponse();
         }
 
         return $this->json($data);
@@ -161,7 +192,7 @@ class NumberController extends AbstractController
 
         try {
             $number = $this->numberService->create($dto);
-        } catch (ConflictHttpException) {
+        } catch (DuplicateNumberException) {
             return $this->json(
                 [['error' => 'validation_error', 'details' => ['number' => 'already exists']]],
                 Response::HTTP_UNPROCESSABLE_ENTITY
@@ -196,12 +227,13 @@ class NumberController extends AbstractController
     )]
     public function update(string $id, Request $request): JsonResponse
     {
+        if (!Uuid::isValid($id)) {
+            return $this->notFoundResponse();
+        }
+
         $number = $this->numberRepository->find($id);
         if ($number === null) {
-            return $this->json(
-                [['error' => 'not_found', 'message' => 'Number not found']],
-                Response::HTTP_NOT_FOUND
-            );
+            return $this->notFoundResponse();
         }
 
         $data = json_decode($request->getContent(), true);
@@ -216,10 +248,10 @@ class NumberController extends AbstractController
         $dto = new UpdateNumberDto();
 
         if (array_key_exists('status', $data)) {
-            $dto->status = $data['status'];
+            $dto->status = is_string($data['status']) ? $data['status'] : null;
         }
         if (array_key_exists('tariff', $data)) {
-            $dto->tariff = $data['tariff'];
+            $dto->tariff = is_string($data['tariff']) ? trim($data['tariff']) : null;
         }
 
         $violations = $this->validator->validate($dto);
@@ -229,7 +261,7 @@ class NumberController extends AbstractController
 
         try {
             $number = $this->numberService->update($number, $dto);
-        } catch (UnprocessableEntityHttpException $e) {
+        } catch (ArchivedNumberException $e) {
             return $this->json(
                 [['error' => 'validation_error', 'details' => ['status' => $e->getMessage()]]],
                 Response::HTTP_UNPROCESSABLE_ENTITY
@@ -253,7 +285,7 @@ class NumberController extends AbstractController
         ];
     }
 
-    private function formatViolations(\Symfony\Component\Validator\ConstraintViolationListInterface $violations): array
+    private function formatViolations(ConstraintViolationListInterface $violations): array
     {
         $details = [];
         foreach ($violations as $violation) {
@@ -261,5 +293,29 @@ class NumberController extends AbstractController
         }
 
         return [['error' => 'validation_error', 'details' => $details]];
+    }
+
+    private function nullableQueryString(Request $request, string $key): ?string
+    {
+        if (!$request->query->has($key)) {
+            return null;
+        }
+
+        $value = $request->query->get($key);
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
+    }
+
+    private function notFoundResponse(): JsonResponse
+    {
+        return $this->json(
+            [['error' => 'not_found', 'message' => 'Number not found']],
+            Response::HTTP_NOT_FOUND
+        );
     }
 }

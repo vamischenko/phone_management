@@ -373,4 +373,39 @@ class NumberControllerTest extends WebTestCase
         $this->assertSame(1, $data['total']);
         $this->assertStringContainsString('467', $data['items'][0]['number']);
     }
+
+    public function testListWithInvalidStatusFilter(): void
+    {
+        $client = static::createClient();
+        $client->request('GET', '/api/numbers?status=unknown');
+
+        $this->assertResponseStatusCodeSame(400);
+        $data = json_decode($client->getResponse()->getContent(), true);
+        $this->assertSame('validation_error', $data[0]['error']);
+        $this->assertArrayHasKey('status', $data[0]['details']);
+    }
+
+    public function testUpdateWithEmptyBodyFails(): void
+    {
+        $number = $this->createNumber();
+        $id = (string) $number->getId();
+
+        $client = static::createClient();
+        $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([]));
+
+        $this->assertResponseStatusCodeSame(422);
+        $data = json_decode($client->getResponse()->getContent(), true);
+        $this->assertSame('validation_error', $data[0]['error']);
+        $this->assertArrayHasKey('body', $data[0]['details']);
+    }
+
+    public function testGetSingleNumberWithInvalidUuid(): void
+    {
+        $client = static::createClient();
+        $client->request('GET', '/api/numbers/not-a-uuid');
+
+        $this->assertResponseStatusCodeSame(404);
+        $data = json_decode($client->getResponse()->getContent(), true);
+        $this->assertSame('not_found', $data[0]['error']);
+    }
 }
