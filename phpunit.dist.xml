@@ -14,10 +14,10 @@
         <ini name="display_errors" value="1" />
         <ini name="error_reporting" value="-1" />
         <server name="APP_ENV" value="test" force="true" />
+        <env name="APP_ENV" value="test" force="true" />
+        <env name="KERNEL_CLASS" value="App\Kernel" force="true" />
         <env name="DOCTRINE_DEPRECATIONS" value="none" />
         <server name="SHELL_VERBOSITY" value="-1" />
-        <server name="DATABASE_URL" value="postgresql://app:secret@127.0.0.1:5432/phone_management?serverVersion=16&amp;charset=utf8" force="true" />
-        <server name="REDIS_URL" value="redis://127.0.0.1:6379" force="true" />
     </php>
 
     <groups>

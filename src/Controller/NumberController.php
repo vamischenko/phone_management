@@ -4,24 +4,24 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
-use App\Entity\Number;
 use App\Exception\ArchivedNumberException;
 use App\Exception\DuplicateNumberException;
+use App\Exception\NumberNotFoundException;
+use App\Http\ApiErrorResponse;
+use App\Normalizer\NumberNormalizer;
 use App\Repository\NumberRepository;
 use App\Request\CreateNumberRequest;
 use App\Request\ListNumbersRequest;
 use App\Request\UpdateNumberRequest;
+use App\Service\NumberCacheService;
 use App\Service\NumberService;
 use OpenApi\Attributes as OA;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Uid\Uuid;
-use Symfony\Component\Validator\ConstraintViolationListInterface;
+use Symfony\Component\Routing\Requirement\Requirement;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
-use Symfony\Contracts\Cache\ItemInterface;
-use Symfony\Contracts\Cache\TagAwareCacheInterface;
 
 #[Route('/api/numbers', name: 'api_numbers_')]
 #[OA\Tag(name: 'Numbers')]
@@ -30,8 +30,9 @@ class NumberController extends AbstractController
     public function __construct(
         private readonly NumberRepository $numberRepository,
         private readonly NumberService $numberService,
+        private readonly NumberCacheService $numberCache,
+        private readonly NumberNormalizer $normalizer,
         private readonly ValidatorInterface $validator,
-        private readonly TagAwareCacheInterface $cache,
     ) {}
 
     #[Route('', name: 'list', methods: ['GET'])]
@@ -54,42 +55,10 @@ class NumberController extends AbstractController
     )]
     public function list(ListNumbersRequest $request): JsonResponse
     {
-        $cacheKey = 'numbers_list_' . \md5(\serialize([
-            $request->status?->value,
-            $request->tariff,
-            $request->search,
-            $request->sortBy,
-            $request->sortOrder,
-            $request->page,
-            $request->limit,
-        ]));
-
-        $result = $this->cache->get($cacheKey, function (ItemInterface $item) use ($request): array {
-            $item->expiresAfter(60);
-            $item->tag('numbers_list');
-
-            $data = $this->numberRepository->findByFilters(
-                $request->status,
-                $request->tariff,
-                $request->search,
-                $request->sortBy,
-                $request->sortOrder,
-                $request->page,
-                $request->limit,
-            );
-
-            $data['items'] = \array_map(
-                fn(Number $n) => $this->serializeNumber($n),
-                $data['items']
-            );
-
-            return $data;
-        });
-
-        return $this->json($result);
+        return $this->json($this->numberCache->getList($request));
     }
 
-    #[Route('/{id}', name: 'show', methods: ['GET'])]
+    #[Route('/{id}', name: 'show', methods: ['GET'], requirements: ['id' => Requirement::UUID])]
     #[OA\Get(
         path: '/api/numbers/{id}',
         summary: 'Get single number by ID',
@@ -103,26 +72,9 @@ class NumberController extends AbstractController
     )]
     public function show(string $id): JsonResponse
     {
-        if (!Uuid::isValid($id)) {
-            return $this->notFoundResponse();
-        }
-
-        $data = $this->cache->get("number_{$id}", function (ItemInterface $item) use ($id): array {
-            $item->expiresAfter(300);
-            $item->tag(['numbers_list', 'number_' . $id]);
-
-            $number = $this->numberRepository->find($id);
-            if ($number === null) {
-                // signal cache miss so the result is not stored
-                $item->expiresAfter(0);
-                return [];
-            }
-
-            return $this->serializeNumber($number);
-        });
-
-        if ($data === []) {
-            return $this->notFoundResponse();
+        $data = $this->numberCache->getOne($id);
+        if ($data === null) {
+            throw new NumberNotFoundException();
         }
 
         return $this->json($data);
@@ -152,24 +104,24 @@ class NumberController extends AbstractController
     {
         $violations = $this->validator->validate($request);
         if (\count($violations) > 0) {
-            return $this->json($this->formatViolations($violations), Response::HTTP_UNPROCESSABLE_ENTITY);
+            return $this->json(ApiErrorResponse::fromViolations($violations), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         try {
             $number = $this->numberService->create($request);
         } catch (DuplicateNumberException) {
             return $this->json(
-                [['error' => 'validation_error', 'details' => ['number' => 'already exists']]],
-                Response::HTTP_UNPROCESSABLE_ENTITY
+                ApiErrorResponse::validationError(['number' => 'already exists']),
+                Response::HTTP_UNPROCESSABLE_ENTITY,
             );
         }
 
-        $this->cache->invalidateTags(['numbers_list']);
+        $this->numberCache->invalidateList();
 
-        return $this->json($this->serializeNumber($number), Response::HTTP_CREATED);
+        return $this->json($this->normalizer->normalize($number), Response::HTTP_CREATED);
     }
 
-    #[Route('/{id}', name: 'update', methods: ['PATCH'])]
+    #[Route('/{id}', name: 'update', methods: ['PATCH'], requirements: ['id' => Requirement::UUID])]
     #[OA\Patch(
         path: '/api/numbers/{id}',
         summary: 'Update number status or tariff',
@@ -194,61 +146,27 @@ class NumberController extends AbstractController
     )]
     public function update(string $id, UpdateNumberRequest $request): JsonResponse
     {
-        if (!Uuid::isValid($id)) {
-            return $this->notFoundResponse();
-        }
-
         $number = $this->numberRepository->find($id);
         if ($number === null) {
-            return $this->notFoundResponse();
+            throw new NumberNotFoundException();
         }
 
         $violations = $this->validator->validate($request);
         if (\count($violations) > 0) {
-            return $this->json($this->formatViolations($violations), Response::HTTP_UNPROCESSABLE_ENTITY);
+            return $this->json(ApiErrorResponse::fromViolations($violations), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         try {
             $number = $this->numberService->update($number, $request);
         } catch (ArchivedNumberException $e) {
             return $this->json(
-                [['error' => 'validation_error', 'details' => ['status' => $e->getMessage()]]],
-                Response::HTTP_UNPROCESSABLE_ENTITY
+                ApiErrorResponse::validationError(['status' => $e->getMessage()]),
+                Response::HTTP_UNPROCESSABLE_ENTITY,
             );
         }
 
-        $this->cache->invalidateTags(['numbers_list', 'number_' . $id]);
+        $this->numberCache->invalidateOne($id);
 
-        return $this->json($this->serializeNumber($number));
-    }
-
-    private function serializeNumber(Number $number): array
-    {
-        return [
-            'id'         => (string) $number->getId(),
-            'number'     => $number->getNumber(),
-            'status'     => $number->getStatus()->value,
-            'tariff'     => $number->getTariff(),
-            'created_at' => $number->getCreatedAt()->format(\DateTimeInterface::RFC3339),
-            'updated_at' => $number->getUpdatedAt()->format(\DateTimeInterface::RFC3339),
-        ];
-    }
-
-    private function formatViolations(ConstraintViolationListInterface $violations): array
-    {
-        $details = [];
-        foreach ($violations as $violation) {
-            $details[$violation->getPropertyPath()] = $violation->getMessage();
-        }
-
-        return [['error' => 'validation_error', 'details' => $details]];
-    }
-
-    private function notFoundResponse(): JsonResponse
-    {
-        return $this->json(
-            [['error' => 'not_found', 'message' => 'Number not found']],
-            Response::HTTP_NOT_FOUND
-        );
+        return $this->json($this->normalizer->normalize($number));
     }
 }

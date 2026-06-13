@@ -7,6 +7,7 @@ namespace App\Tests\Functional\Controller;
 use App\Entity\Number;
 use App\Enum\NumberStatus;
 use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Contracts\Cache\TagAwareCacheInterface;
 
@@ -14,15 +15,18 @@ class NumberControllerTest extends WebTestCase
 {
     private EntityManagerInterface $em;
 
-    protected function setUp(): void
+    private function createClientWithFreshDatabase(): KernelBrowser
     {
-        $this->em = static::getContainer()->get(EntityManagerInterface::class);
+        $client = static::createClient();
 
+        $this->em = static::getContainer()->get(EntityManagerInterface::class);
         $this->em->createQuery('DELETE FROM App\Entity\Number n')->execute();
 
         /** @var TagAwareCacheInterface $cache */
         $cache = static::getContainer()->get('numbers.cache');
         $cache->invalidateTags(['numbers_list']);
+
+        return $client;
     }
 
     private function createNumber(
@@ -44,7 +48,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testGetListReturnsEmptyPagination(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
         $client->request('GET', '/api/numbers');
 
         $this->assertResponseIsSuccessful();
@@ -59,10 +63,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testGetListWithStatusFilter(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $this->createNumber('46700000001', 'business', NumberStatus::ACTIVE);
         $this->createNumber('46700000002', 'premium', NumberStatus::BLOCKED);
 
-        $client = static::createClient();
         $client->request('GET', '/api/numbers?status=active');
 
         $this->assertResponseIsSuccessful();
@@ -74,10 +78,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testGetListWithTariffFilter(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $this->createNumber('46700000001', 'business');
         $this->createNumber('46700000002', 'premium');
 
-        $client = static::createClient();
         $client->request('GET', '/api/numbers?tariff=premium');
 
         $this->assertResponseIsSuccessful();
@@ -89,11 +93,11 @@ class NumberControllerTest extends WebTestCase
 
     public function testGetListSortByCreatedAtAsc(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $this->createNumber('46700000001');
         sleep(1); // TIMESTAMP(0) has second precision — ensure distinct timestamps
         $this->createNumber('46700000002');
 
-        $client = static::createClient();
         $client->request('GET', '/api/numbers?sort_by=created_at&sort_order=asc');
 
         $this->assertResponseIsSuccessful();
@@ -106,11 +110,11 @@ class NumberControllerTest extends WebTestCase
 
     public function testGetListSortByCreatedAtDesc(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $this->createNumber('46700000001');
         sleep(1); // TIMESTAMP(0) has second precision — ensure distinct timestamps
         $this->createNumber('46700000002');
 
-        $client = static::createClient();
         $client->request('GET', '/api/numbers?sort_by=created_at&sort_order=desc');
 
         $this->assertResponseIsSuccessful();
@@ -123,10 +127,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testGetSingleNumber(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $number = $this->createNumber();
         $id = (string) $number->getId();
 
-        $client = static::createClient();
         $client->request('GET', '/api/numbers/' . $id);
 
         $this->assertResponseIsSuccessful();
@@ -141,7 +145,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testGetSingleNumberNotFound(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
         $client->request('GET', '/api/numbers/00000000-0000-0000-0000-000000000000');
 
         $this->assertResponseStatusCodeSame(404);
@@ -151,7 +155,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testCreateNumber(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
         $client->request('POST', '/api/numbers', [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'number' => '46700000001',
             'tariff' => 'business',
@@ -168,7 +172,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testCreateNumberWithNonDigits(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
         $client->request('POST', '/api/numbers', [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'number' => 'abc123',
             'tariff' => 'business',
@@ -182,7 +186,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testCreateNumberWithTooManyDigits(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
         $client->request('POST', '/api/numbers', [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'number' => '1234567890123456',
             'tariff' => 'business',
@@ -195,7 +199,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testCreateMissingFields(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
         $client->request('POST', '/api/numbers', [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([]));
 
         $this->assertResponseStatusCodeSame(422);
@@ -206,9 +210,9 @@ class NumberControllerTest extends WebTestCase
 
     public function testCreateDuplicateNumber(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $this->createNumber('46700000001');
 
-        $client = static::createClient();
         $client->request('POST', '/api/numbers', [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'number' => '46700000001',
             'tariff' => 'business',
@@ -222,7 +226,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testCreateInvalidatesListCache(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
 
         // Первый запрос — кэшируем пустой список
         $client->request('GET', '/api/numbers');
@@ -244,10 +248,9 @@ class NumberControllerTest extends WebTestCase
 
     public function testUpdateInvalidatesItemAndListCache(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $number = $this->createNumber();
         $id = (string) $number->getId();
-
-        $client = static::createClient();
 
         // Кэшируем отдельный номер и список
         $client->request('GET', '/api/numbers/' . $id);
@@ -272,10 +275,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testUpdateNumberStatus(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $number = $this->createNumber();
         $id = (string) $number->getId();
 
-        $client = static::createClient();
         $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'status' => 'blocked',
         ]));
@@ -287,10 +290,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testUpdateNumberTariff(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $number = $this->createNumber();
         $id = (string) $number->getId();
 
-        $client = static::createClient();
         $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'tariff' => 'premium',
         ]));
@@ -302,10 +305,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testUpdateArchivedNumberFails(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $number = $this->createNumber('46700000001', 'business', NumberStatus::ARCHIVED);
         $id = (string) $number->getId();
 
-        $client = static::createClient();
         $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'status' => 'active',
         ]));
@@ -317,10 +320,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testUpdateWithEmptyBodyFails(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $number = $this->createNumber();
         $id = (string) $number->getId();
 
-        $client = static::createClient();
         $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], '{}');
 
         $this->assertResponseStatusCodeSame(422);
@@ -331,10 +334,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testUpdateWithInvalidStatus(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $number = $this->createNumber();
         $id = (string) $number->getId();
 
-        $client = static::createClient();
         $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'status' => 'unknown_status',
         ]));
@@ -346,7 +349,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testUpdateNumberNotFound(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
         $client->request('PATCH', '/api/numbers/00000000-0000-0000-0000-000000000000', [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'tariff' => 'premium',
         ]));
@@ -358,11 +361,11 @@ class NumberControllerTest extends WebTestCase
 
     public function testListPagination(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         for ($i = 1; $i <= 5; $i++) {
             $this->createNumber('4670000000' . $i);
         }
 
-        $client = static::createClient();
         $client->request('GET', '/api/numbers?page=1&limit=2');
 
         $this->assertResponseIsSuccessful();
@@ -377,10 +380,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testListSearchByNumber(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $this->createNumber('46700000001');
         $this->createNumber('99900000001');
 
-        $client = static::createClient();
         $client->request('GET', '/api/numbers?search=467');
 
         $this->assertResponseIsSuccessful();
@@ -392,7 +395,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testListWithInvalidStatusFilter(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
         $client->request('GET', '/api/numbers?status=unknown');
 
         $this->assertResponseStatusCodeSame(400);
@@ -403,7 +406,7 @@ class NumberControllerTest extends WebTestCase
 
     public function testGetSingleNumberWithInvalidUuid(): void
     {
-        $client = static::createClient();
+        $client = $this->createClientWithFreshDatabase();
         $client->request('GET', '/api/numbers/not-a-uuid');
 
         $this->assertResponseStatusCodeSame(404);
@@ -413,10 +416,10 @@ class NumberControllerTest extends WebTestCase
 
     public function testUpdateWithBlankTariffFails(): void
     {
+        $client = $this->createClientWithFreshDatabase();
         $number = $this->createNumber();
         $id = (string) $number->getId();
 
-        $client = static::createClient();
         $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'tariff' => '',
         ]));

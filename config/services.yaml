@@ -19,6 +19,6 @@ services:
     App\:
         resource: '../src/'
 
-    App\Controller\NumberController:
+    App\Service\NumberCacheService:
         arguments:
             $cache: '@numbers.cache'
