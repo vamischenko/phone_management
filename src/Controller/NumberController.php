@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
-use App\Dto\CreateNumberDto;
-use App\Dto\UpdateNumberDto;
 use App\Entity\Number;
 use App\Exception\ArchivedNumberException;
 use App\Exception\DuplicateNumberException;
@@ -109,17 +107,23 @@ class NumberController extends AbstractController
             return $this->notFoundResponse();
         }
 
-        $number = $this->numberRepository->find($id);
-        if ($number === null) {
-            return $this->notFoundResponse();
-        }
-
-        $data = $this->cache->get("number_{$id}", function (ItemInterface $item) use ($number, $id): array {
+        $data = $this->cache->get("number_{$id}", function (ItemInterface $item) use ($id): array {
             $item->expiresAfter(300);
             $item->tag(['numbers_list', 'number_' . $id]);
 
+            $number = $this->numberRepository->find($id);
+            if ($number === null) {
+                // signal cache miss so the result is not stored
+                $item->expiresAfter(0);
+                return [];
+            }
+
             return $this->serializeNumber($number);
         });
+
+        if ($data === []) {
+            return $this->notFoundResponse();
+        }
 
         return $this->json($data);
     }
@@ -146,17 +150,13 @@ class NumberController extends AbstractController
     )]
     public function create(CreateNumberRequest $request): JsonResponse
     {
-        $dto = new CreateNumberDto();
-        $dto->number = $request->number;
-        $dto->tariff = $request->tariff;
-
-        $violations = $this->validator->validate($dto);
+        $violations = $this->validator->validate($request);
         if (\count($violations) > 0) {
             return $this->json($this->formatViolations($violations), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         try {
-            $number = $this->numberService->create($dto);
+            $number = $this->numberService->create($request);
         } catch (DuplicateNumberException) {
             return $this->json(
                 [['error' => 'validation_error', 'details' => ['number' => 'already exists']]],
@@ -203,17 +203,13 @@ class NumberController extends AbstractController
             return $this->notFoundResponse();
         }
 
-        $dto = new UpdateNumberDto();
-        $dto->status = $request->status;
-        $dto->tariff = $request->tariff;
-
-        $violations = $this->validator->validate($dto);
+        $violations = $this->validator->validate($request);
         if (\count($violations) > 0) {
             return $this->json($this->formatViolations($violations), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         try {
-            $number = $this->numberService->update($number, $dto);
+            $number = $this->numberService->update($number, $request);
         } catch (ArchivedNumberException $e) {
             return $this->json(
                 [['error' => 'validation_error', 'details' => ['status' => $e->getMessage()]]],

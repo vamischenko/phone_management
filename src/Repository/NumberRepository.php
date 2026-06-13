@@ -69,7 +69,7 @@ class NumberRepository extends ServiceEntityRepository
             'total' => (int) $total,
             'page' => $page,
             'limit' => $limit,
-            'pages' => (int) ceil($total / $limit),
+            'pages' => $total === 0 ? 1 : (int) ceil($total / $limit),
         ];
     }
 }

@@ -8,7 +8,7 @@ use App\Enum\NumberStatus;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
-final class ListNumbersRequest
+final class ListNumbersRequest implements ApiRequestInterface
 {
     public readonly ?NumberStatus $status;
     public readonly ?string $tariff;
