@@ -140,6 +140,19 @@ curl -X PATCH http://localhost:8080/api/numbers/c707ebc1-b8e6-4e13-b184-137df26e
 ]
 ```
 
+### Формат ошибки «не найдено»
+
+```json
+[
+  {
+    "error": "not_found",
+    "message": "Number not found"
+  }
+]
+```
+
+Ошибки `400` (невалидные query/body) и `404` приводятся к единому JSON-формату через `ApiExceptionSubscriber`.
+
 ---
 
 ## Swagger / OpenAPI
@@ -162,7 +175,7 @@ php bin/console nelmio:apidoc:dump --format=json > openapi.json
 
 ## Кэширование
 
-Используется `TagAwareCacheInterface` (Redis, пул `numbers.cache`):
+Логика кэша вынесена в `NumberCacheService` (пул `numbers.cache`, Redis в dev/prod, array adapter в test):
 
 | Что кэшируется   | TTL      | Тег инвалидации              |
 |------------------|----------|------------------------------|
@@ -176,30 +189,29 @@ php bin/console nelmio:apidoc:dump --format=json > openapi.json
 
 ## Тесты
 
-### Unit тесты (без БД, без Docker)
+### Unit тесты (без БД)
 
 ```bash
-php vendor/bin/phpunit tests/Unit --no-coverage
+docker compose exec php php vendor/bin/phpunit tests/Unit --no-coverage
 ```
 
-### Функциональные тесты (требуют запущенных сервисов)
+### Функциональные тесты (PostgreSQL + Redis)
 
-```bash
-# Создать тестовую БД и применить миграции
-php bin/console doctrine:database:create --env=test --if-not-exists
-php bin/console doctrine:migrations:migrate --env=test --no-interaction
-
-# Запустить все тесты
-php vendor/bin/phpunit --no-coverage
-```
-
-Или внутри Docker:
+Рекомендуется запускать внутри Docker — там уже настроены `DATABASE_URL` и `APP_ENV=test`:
 
 ```bash
 docker compose exec php php bin/console doctrine:database:create --env=test --if-not-exists
 docker compose exec php php bin/console doctrine:migrations:migrate --env=test --no-interaction
+docker compose exec php php vendor/bin/phpunit tests/Functional --no-coverage
+```
+
+Все тесты:
+
+```bash
 docker compose exec php php vendor/bin/phpunit --no-coverage
 ```
+
+Doctrine автоматически добавляет суффикс `_test` к имени БД в test-окружении (`phone_management` → `phone_management_test`).
 
 ---
 
@@ -207,22 +219,30 @@ docker compose exec php php vendor/bin/phpunit --no-coverage
 
 ```text
 src/
-├── Controller/NumberController.php   # Все API endpoints
-├── Dto/
-│   ├── CreateNumberDto.php           # Валидация POST
-│   └── UpdateNumberDto.php           # Валидация PATCH
-├── Entity/Number.php                 # Doctrine entity (UUID, lifecycle callbacks)
-├── Enum/NumberStatus.php             # active | blocked | archived
-├── Repository/NumberRepository.php   # Фильтрация, сортировка, пагинация
-└── Service/NumberService.php         # Бизнес-логика создания и обновления
+├── ArgumentResolver/ApiRequestResolver.php  # Резолвинг Request DTO из HTTP-запроса
+├── Controller/NumberController.php          # API endpoints
+├── Entity/Number.php                        # Doctrine entity (UUID, lifecycle callbacks)
+├── Enum/NumberStatus.php                    # active | blocked | archived
+├── EventSubscriber/ApiExceptionSubscriber.php  # Единый JSON-формат ошибок
+├── Exception/                               # DuplicateNumberException, ArchivedNumberException, ...
+├── Http/ApiErrorResponse.php                # Фабрика JSON-ответов с ошибками
+├── Normalizer/NumberNormalizer.php          # Сериализация entity → JSON
+├── Repository/NumberRepository.php          # Фильтрация, сортировка, пагинация
+├── Request/                                 # Валидация входящих данных
+│   ├── CreateNumberRequest.php              # POST
+│   ├── UpdateNumberRequest.php              # PATCH
+│   └── ListNumbersRequest.php               # GET (query-параметры)
+└── Service/
+    ├── NumberService.php                    # Бизнес-логика создания и обновления
+    └── NumberCacheService.php               # Кэш списка и отдельных номеров
 
 migrations/
-└── Version20260523000001.php         # Создание таблицы numbers + индексы
+└── Version20260523000001.php                # Создание таблицы numbers + индексы
 
 tests/
 ├── Unit/
 │   ├── Entity/NumberTest.php
 │   └── Service/NumberServiceTest.php
 └── Functional/
-    └── Controller/NumberControllerTest.php  # Включает тесты инвалидации кэша
+    └── Controller/NumberControllerTest.php  # API + инвалидация кэша
 ```
