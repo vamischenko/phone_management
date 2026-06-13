@@ -19,7 +19,8 @@ class NumberService
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly NumberRepository $numberRepository,
-    ) {}
+    ) {
+    }
 
     public function create(CreateNumberRequest $request): Number
     {

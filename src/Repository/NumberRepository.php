@@ -19,6 +19,9 @@ class NumberRepository extends ServiceEntityRepository
         parent::__construct($registry, Number::class);
     }
 
+    /**
+     * @return array{items: list<Number>, total: int, page: int, limit: int, pages: int}
+     */
     public function findByFilters(
         ?NumberStatus $status,
         ?string $tariff,
@@ -53,7 +56,7 @@ class NumberRepository extends ServiceEntityRepository
         $sortDirection = strtolower($sortOrder) === 'asc' ? 'ASC' : 'DESC';
 
         $countQb = (clone $qb)->select('COUNT(n.id)');
-        $total = $countQb->getQuery()->getSingleScalarResult();
+        $total = (int) $countQb->getQuery()->getSingleScalarResult();
 
         $qb->orderBy('n.' . $sortField, $sortDirection);
 
@@ -66,7 +69,7 @@ class NumberRepository extends ServiceEntityRepository
 
         return [
             'items' => $items,
-            'total' => (int) $total,
+            'total' => $total,
             'page' => $page,
             'limit' => $limit,
             'pages' => $total === 0 ? 1 : (int) ceil($total / $limit),

@@ -33,18 +33,31 @@ class NumberController extends AbstractController
         private readonly NumberCacheService $numberCache,
         private readonly NumberNormalizer $normalizer,
         private readonly ValidatorInterface $validator,
-    ) {}
+    ) {
+    }
 
     #[Route('', name: 'list', methods: ['GET'])]
     #[OA\Get(
         path: '/api/numbers',
         summary: 'Get list of numbers',
         parameters: [
-            new OA\Parameter(name: 'status', in: 'query', schema: new OA\Schema(type: 'string', enum: ['active', 'blocked', 'archived'])),
+            new OA\Parameter(
+                name: 'status',
+                in: 'query',
+                schema: new OA\Schema(type: 'string', enum: ['active', 'blocked', 'archived']),
+            ),
             new OA\Parameter(name: 'tariff', in: 'query', schema: new OA\Schema(type: 'string')),
             new OA\Parameter(name: 'search', in: 'query', schema: new OA\Schema(type: 'string')),
-            new OA\Parameter(name: 'sort_by', in: 'query', schema: new OA\Schema(type: 'string', enum: ['created_at', 'updated_at'], default: 'created_at')),
-            new OA\Parameter(name: 'sort_order', in: 'query', schema: new OA\Schema(type: 'string', enum: ['asc', 'desc'], default: 'desc')),
+            new OA\Parameter(
+                name: 'sort_by',
+                in: 'query',
+                schema: new OA\Schema(type: 'string', enum: ['created_at', 'updated_at'], default: 'created_at'),
+            ),
+            new OA\Parameter(
+                name: 'sort_order',
+                in: 'query',
+                schema: new OA\Schema(type: 'string', enum: ['asc', 'desc'], default: 'desc'),
+            ),
             new OA\Parameter(name: 'page', in: 'query', schema: new OA\Schema(type: 'integer', default: 1)),
             new OA\Parameter(name: 'limit', in: 'query', schema: new OA\Schema(type: 'integer', default: 20)),
         ],
@@ -55,6 +68,11 @@ class NumberController extends AbstractController
     )]
     public function list(ListNumbersRequest $request): JsonResponse
     {
+        $violations = $this->validator->validate($request);
+        if (\count($violations) > 0) {
+            return $this->json(ApiErrorResponse::fromViolations($violations), Response::HTTP_BAD_REQUEST);
+        }
+
         return $this->json($this->numberCache->getList($request));
     }
 

@@ -8,6 +8,9 @@ use App\Entity\Number;
 
 final class NumberNormalizer
 {
+    /**
+     * @return array{id: string, number: string, status: string, tariff: string, created_at: string, updated_at: string}
+     */
     public function normalize(Number $number): array
     {
         return [
@@ -21,9 +24,9 @@ final class NumberNormalizer
     }
 
     /**
-     * @param Number[] $numbers
+     * @param list<Number> $numbers
      *
-     * @return array<int, array<string, mixed>>
+     * @return list<array{id: string, number: string, status: string, tariff: string, created_at: string, updated_at: string}>
      */
     public function normalizeList(array $numbers): array
     {

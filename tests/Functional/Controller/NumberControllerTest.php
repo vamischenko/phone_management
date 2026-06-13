@@ -7,10 +7,12 @@ namespace App\Tests\Functional\Controller;
 use App\Entity\Number;
 use App\Enum\NumberStatus;
 use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\Attributes\Group;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Contracts\Cache\TagAwareCacheInterface;
 
+#[Group('functional')]
 class NumberControllerTest extends WebTestCase
 {
     private EntityManagerInterface $em;
@@ -350,9 +352,14 @@ class NumberControllerTest extends WebTestCase
     public function testUpdateNumberNotFound(): void
     {
         $client = $this->createClientWithFreshDatabase();
-        $client->request('PATCH', '/api/numbers/00000000-0000-0000-0000-000000000000', [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
-            'tariff' => 'premium',
-        ]));
+        $client->request(
+            'PATCH',
+            '/api/numbers/00000000-0000-0000-0000-000000000000',
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json'],
+            json_encode(['tariff' => 'premium']),
+        );
 
         $this->assertResponseStatusCodeSame(404);
         $data = json_decode($client->getResponse()->getContent(), true);

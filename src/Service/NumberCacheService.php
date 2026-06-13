@@ -16,12 +16,29 @@ final class NumberCacheService
         private readonly TagAwareCacheInterface $cache,
         private readonly NumberRepository $numberRepository,
         private readonly NumberNormalizer $normalizer,
-    ) {}
+    ) {
+    }
 
+    /**
+     * @return array{
+     *     items: list<array{
+     *         id: string,
+     *         number: string,
+     *         status: string,
+     *         tariff: string,
+     *         created_at: string,
+     *         updated_at: string
+     *     }>,
+     *     total: int,
+     *     page: int,
+     *     limit: int,
+     *     pages: int
+     * }
+     */
     public function getList(ListNumbersRequest $request): array
     {
         $cacheKey = 'numbers_list_' . \md5(\serialize([
-            $request->status?->value,
+            $request->getStatus()?->value,
             $request->tariff,
             $request->search,
             $request->sortBy,
@@ -35,7 +52,7 @@ final class NumberCacheService
             $item->tag('numbers_list');
 
             $data = $this->numberRepository->findByFilters(
-                $request->status,
+                $request->getStatus(),
                 $request->tariff,
                 $request->search,
                 $request->sortBy,
@@ -50,6 +67,9 @@ final class NumberCacheService
         });
     }
 
+    /**
+     * @return array{id: string, number: string, status: string, tariff: string, created_at: string, updated_at: string}|null
+     */
     public function getOne(string $id): ?array
     {
         return $this->cache->get("number_{$id}", function (ItemInterface $item) use ($id): ?array {

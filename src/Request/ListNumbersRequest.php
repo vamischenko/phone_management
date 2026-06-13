@@ -6,56 +6,56 @@ namespace App\Request;
 
 use App\Enum\NumberStatus;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+use Symfony\Component\Validator\Constraints as Assert;
 
 final class ListNumbersRequest implements ApiRequestInterface
 {
-    public readonly ?NumberStatus $status;
-    public readonly ?string $tariff;
-    public readonly ?string $search;
-    public readonly string $sortBy;
-    public readonly string $sortOrder;
-    public readonly int $page;
-    public readonly int $limit;
+    #[Assert\Choice(
+        choices: ['active', 'blocked', 'archived'],
+        message: 'status must be one of: active, blocked, archived',
+    )]
+    public readonly ?string $status;
 
-    private const ALLOWED_SORT_FIELDS = ['created_at', 'updated_at'];
-    private const ALLOWED_SORT_ORDERS = ['asc', 'desc'];
+    public readonly ?string $tariff;
+
+    public readonly ?string $search;
+
+    #[Assert\Choice(
+        choices: ['created_at', 'updated_at'],
+        message: 'sort_by must be one of: created_at, updated_at',
+    )]
+    public readonly string $sortBy;
+
+    #[Assert\Choice(
+        choices: ['asc', 'desc'],
+        message: 'sort_order must be one of: asc, desc',
+    )]
+    public readonly string $sortOrder;
+
+    #[Assert\Positive(message: 'page must be a positive integer')]
+    public readonly int $page;
+
+    #[Assert\Range(
+        min: 1,
+        max: 100,
+        notInRangeMessage: 'limit must be between {{ min }} and {{ max }}',
+    )]
+    public readonly int $limit;
 
     public function __construct(Request $request)
     {
-        $statusParam = $this->nullableString($request, 'status');
-        if ($statusParam !== null) {
-            $status = NumberStatus::tryFrom($statusParam);
-            if ($status === null) {
-                throw new BadRequestHttpException(
-                    \sprintf('status must be one of: %s', \implode(', ', \array_column(NumberStatus::cases(), 'value')))
-                );
-            }
-            $this->status = $status;
-        } else {
-            $this->status = null;
-        }
-
-        $sortBy = $request->query->getString('sort_by', 'created_at');
-        if (!\in_array($sortBy, self::ALLOWED_SORT_FIELDS, true)) {
-            throw new BadRequestHttpException(
-                \sprintf('sort_by must be one of: %s', \implode(', ', self::ALLOWED_SORT_FIELDS))
-            );
-        }
-
-        $sortOrder = \strtolower($request->query->getString('sort_order', 'desc'));
-        if (!\in_array($sortOrder, self::ALLOWED_SORT_ORDERS, true)) {
-            throw new BadRequestHttpException(
-                \sprintf('sort_order must be one of: %s', \implode(', ', self::ALLOWED_SORT_ORDERS))
-            );
-        }
-
+        $this->status    = $this->nullableString($request, 'status');
         $this->tariff    = $this->nullableString($request, 'tariff');
         $this->search    = $this->nullableString($request, 'search');
-        $this->sortBy    = $sortBy;
-        $this->sortOrder = $sortOrder;
+        $this->sortBy    = $request->query->getString('sort_by', 'created_at');
+        $this->sortOrder = \strtolower($request->query->getString('sort_order', 'desc'));
         $this->page      = \max(1, $request->query->getInt('page', 1));
         $this->limit     = \min(100, \max(1, $request->query->getInt('limit', 20)));
+    }
+
+    public function getStatus(): ?NumberStatus
+    {
+        return $this->status === null ? null : NumberStatus::from($this->status);
     }
 
     private function nullableString(Request $request, string $key): ?string

@@ -20,15 +20,12 @@
         <server name="SHELL_VERBOSITY" value="-1" />
     </php>
 
-    <groups>
-        <exclude>
-            <group>functional</group>
-        </exclude>
-    </groups>
-
     <testsuites>
-        <testsuite name="Project Test Suite">
-            <directory>tests</directory>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Functional">
+            <directory>tests/Functional</directory>
         </testsuite>
     </testsuites>
 

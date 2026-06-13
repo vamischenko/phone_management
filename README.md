@@ -192,7 +192,7 @@ php bin/console nelmio:apidoc:dump --format=json > openapi.json
 ### Unit тесты (без БД)
 
 ```bash
-docker compose exec php php vendor/bin/phpunit tests/Unit --no-coverage
+docker compose exec php php vendor/bin/phpunit --testsuite Unit --no-coverage
 ```
 
 ### Функциональные тесты (PostgreSQL + Redis)
@@ -202,7 +202,7 @@ docker compose exec php php vendor/bin/phpunit tests/Unit --no-coverage
 ```bash
 docker compose exec php php bin/console doctrine:database:create --env=test --if-not-exists
 docker compose exec php php bin/console doctrine:migrations:migrate --env=test --no-interaction
-docker compose exec php php vendor/bin/phpunit tests/Functional --no-coverage
+docker compose exec php php vendor/bin/phpunit --testsuite Functional --no-coverage
 ```
 
 Все тесты:
@@ -212,6 +212,26 @@ docker compose exec php php vendor/bin/phpunit --no-coverage
 ```
 
 Doctrine автоматически добавляет суффикс `_test` к имени БД в test-окружении (`phone_management` → `phone_management_test`).
+
+### Статический анализ (PHPStan)
+
+```bash
+docker compose exec php composer phpstan
+```
+
+Уровень **8**, анализируется `src/`. Перед запуском прогревается Symfony cache (встроено в `composer phpstan`).
+
+### Code style (PHP_CodeSniffer)
+
+```bash
+docker compose exec php composer phpcs
+```
+
+Стандарт **PSR-12**, лимит строки — 140 символов. Автоисправление:
+
+```bash
+docker compose exec php composer phpcbf
+```
 
 ---
 
