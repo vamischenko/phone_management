@@ -34,6 +34,7 @@ class NumberControllerTest extends WebTestCase
         $entity->setNumber($number);
         $entity->setTariff($tariff);
         $entity->setStatus($status);
+        $entity->onPrePersist();
 
         $this->em->persist($entity);
         $this->em->flush();
@@ -314,6 +315,20 @@ class NumberControllerTest extends WebTestCase
         $this->assertSame('validation_error', $data[0]['error']);
     }
 
+    public function testUpdateWithEmptyBodyFails(): void
+    {
+        $number = $this->createNumber();
+        $id = (string) $number->getId();
+
+        $client = static::createClient();
+        $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], '{}');
+
+        $this->assertResponseStatusCodeSame(422);
+        $data = json_decode($client->getResponse()->getContent(), true);
+        $this->assertSame('validation_error', $data[0]['error']);
+        $this->assertArrayHasKey('body', $data[0]['details']);
+    }
+
     public function testUpdateWithInvalidStatus(): void
     {
         $number = $this->createNumber();
@@ -384,20 +399,6 @@ class NumberControllerTest extends WebTestCase
         $data = json_decode($client->getResponse()->getContent(), true);
         $this->assertSame('validation_error', $data[0]['error']);
         $this->assertArrayHasKey('status', $data[0]['details']);
-    }
-
-    public function testUpdateWithEmptyBodyFails(): void
-    {
-        $number = $this->createNumber();
-        $id = (string) $number->getId();
-
-        $client = static::createClient();
-        $client->request('PATCH', '/api/numbers/' . $id, [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([]));
-
-        $this->assertResponseStatusCodeSame(422);
-        $data = json_decode($client->getResponse()->getContent(), true);
-        $this->assertSame('validation_error', $data[0]['error']);
-        $this->assertArrayHasKey('body', $data[0]['details']);
     }
 
     public function testGetSingleNumberWithInvalidUuid(): void
